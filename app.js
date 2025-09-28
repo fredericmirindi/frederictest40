@@ -1,359 +1,348 @@
-// Academic website JavaScript functionality
+// Live Information Dashboard functionality
+// Comet Assistant: adds real-time, simulated data updates for dashboard widgets
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Get DOM elements
-    const navToggle = document.getElementById('nav-toggle');
-    const navMenu = document.getElementById('nav-menu');
-    const navLinks = document.querySelectorAll('.nav__link');
-    const pages = document.querySelectorAll('.page');
-    const contactForm = document.querySelector('.contact-form');
+document.addEventListener('DOMContentLoaded', () => {
+  // Utility helpers
+  const $ = (sel, ctx = document) => ctx.querySelector(sel);
+  const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+  const rand = (min, max) => Math.random() * (max - min) + min;
+  const randInt = (min, max) => Math.floor(rand(min, max + 1));
+  const format2 = n => n.toString().padStart(2, '0');
 
-    // Mobile menu toggle
-    navToggle.addEventListener('click', function() {
-        navMenu.classList.toggle('active');
-        
-        // Animate hamburger menu
-        const spans = navToggle.querySelectorAll('span');
-        if (navMenu.classList.contains('active')) {
-            spans[0].style.transform = 'rotate(45deg) translate(5px, 5px)';
-            spans[1].style.opacity = '0';
-            spans[2].style.transform = 'rotate(-45deg) translate(7px, -6px)';
-        } else {
-            spans[0].style.transform = 'none';
-            spans[1].style.opacity = '1';
-            spans[2].style.transform = 'none';
-        }
+  // Safe text setter
+  function setText(el, text) {
+    if (!el) return;
+    el.textContent = text;
+  }
+
+  // Animated number update
+  function tweenNumber({ el, from = 0, to = 0, duration = 600, formatter = v => v.toFixed(0) }) {
+    if (!el) return;
+    const start = performance.now();
+    function frame(now) {
+      const t = clamp((now - start) / duration, 0, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const val = from + (to - from) * eased;
+      el.textContent = formatter(val);
+      if (t < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Sparkline generator (optional, if canvas present)
+  function updateSparkline(canvas, points) {
+    if (!canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width = canvas.offsetWidth || 160;
+    const h = canvas.height = canvas.offsetHeight || 48;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const scaleX = w / Math.max(1, points.length - 1);
+    const scaleY = max === min ? 1 : h / (max - min);
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineWidth = 2;
+    // Gradient line
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#34d399');
+    grad.addColorStop(1, '#10b981');
+    ctx.strokeStyle = grad;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const x = i * scaleX;
+      const y = h - (p - min) * scaleY;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
+    ctx.stroke();
+  }
 
-    // Page navigation
-    function showPage(targetPage) {
-        // Hide all pages
-        pages.forEach(page => {
-            page.classList.remove('active');
-        });
-        
-        // Show target page
-        const targetElement = document.getElementById(targetPage);
-        if (targetElement) {
-            targetElement.classList.add('active');
-        }
-        
-        // Update active navigation link
-        navLinks.forEach(link => {
-            link.classList.remove('active');
-        });
-        
-        const activeLink = document.querySelector(`[data-page="${targetPage}"]`);
-        if (activeLink) {
-            activeLink.classList.add('active');
-        }
-        
-        // Close mobile menu if open
-        navMenu.classList.remove('active');
-        const spans = navToggle.querySelectorAll('span');
-        spans[0].style.transform = 'none';
-        spans[1].style.opacity = '1';
-        spans[2].style.transform = 'none';
-        
-        // Scroll to top
-        window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-        });
-        
-        // Update URL hash
-        window.location.hash = targetPage;
+  // Clock: updates every second
+  function initClock() {
+    const timeEl = document.getElementById('clock-time');
+    const dateEl = document.getElementById('clock-date');
+    function tick() {
+      const now = new Date();
+      const hh = format2(now.getHours());
+      const mm = format2(now.getMinutes());
+      const ss = format2(now.getSeconds());
+      const timeStr = `${hh}:${mm}:${ss}`;
+      const dateStr = now.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      setText(timeEl, timeStr);
+      setText(dateEl, dateStr);
+    }
+    tick();
+    return setInterval(tick, 1000);
+  }
+
+  // Weather simulation
+  function initWeather() {
+    const tempEl = document.getElementById('weather-temp'); // e.g., "72°F"
+    const condEl = document.getElementById('weather-cond'); // e.g., "Sunny"
+    const locEl = document.getElementById('weather-loc');   // e.g., city name
+    const iconEl = document.getElementById('weather-icon'); // optional icon element
+
+    const conditions = [
+      { name: 'Sunny', icon: '☀️' },
+      { name: 'Partly Cloudy', icon: '⛅' },
+      { name: 'Cloudy', icon: '☁️' },
+      { name: 'Light Rain', icon: '🌦️' },
+      { name: 'Rain', icon: '🌧️' },
+      { name: 'Storm', icon: '⛈️' },
+      { name: 'Windy', icon: '🌬️' }
+    ];
+
+    const cities = ['Austin', 'New York', 'London', 'Paris', 'Nairobi', 'Kigali', 'Tokyo', 'Singapore'];
+
+    let temp = randInt(50, 85);
+    let idx = randInt(0, conditions.length - 1);
+    let city = cities[randInt(0, cities.length - 1) | 0];
+
+    function render() {
+      tweenNumber({ el: tempEl, from: temp, to: temp = clamp(temp + randInt(-2, 2), 40, 100), duration: 500, formatter: v => `${Math.round(v)}°F` });
+      const c = conditions[idx];
+      setText(condEl, c ? c.name : '—');
+      if (iconEl) setText(iconEl, c ? c.icon : '');
+      setText(locEl, city);
     }
 
-    // Navigation link click handlers
-    navLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const targetPage = this.getAttribute('data-page');
-            showPage(targetPage);
-        });
-    });
-
-    // Handle hero action buttons
-    const heroButtons = document.querySelectorAll('.hero__actions .btn[data-page]');
-    heroButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const targetPage = this.getAttribute('data-page');
-            showPage(targetPage);
-        });
-    });
-
-    // Handle browser back/forward buttons
-    window.addEventListener('hashchange', function() {
-        const hash = window.location.hash.substring(1);
-        if (hash && document.getElementById(hash)) {
-            showPage(hash);
-        }
-    });
-
-    // Initialize page based on URL hash
-    function initializePage() {
-        const hash = window.location.hash.substring(1);
-        if (hash && document.getElementById(hash)) {
-            showPage(hash);
-        } else {
-            showPage('home');
-        }
+    function cycleCondition() {
+      if (Math.random() < 0.4) idx = randInt(0, conditions.length - 1);
+      if (Math.random() < 0.2) city = cities[randInt(0, cities.length - 1) | 0];
+      render();
     }
 
-    // Contact form handling
-    if (contactForm) {
-        contactForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Get form data
-            const formData = new FormData(contactForm);
-            const name = document.getElementById('name').value;
-            const email = document.getElementById('email').value;
-            const subject = document.getElementById('subject').value;
-            const message = document.getElementById('message').value;
-            
-            // Validate form
-            if (!name || !email || !subject || !message) {
-                showNotification('Please fill in all fields.', 'error');
-                return;
-            }
-            
-            if (!isValidEmail(email)) {
-                showNotification('Please enter a valid email address.', 'error');
-                return;
-            }
-            
-            // Simulate form submission
-            const submitButton = contactForm.querySelector('button[type="submit"]');
-            const originalText = submitButton.textContent;
-            
-            submitButton.textContent = 'Sending...';
-            submitButton.disabled = true;
-            
-            // Simulate API call delay
-            setTimeout(() => {
-                showNotification('Thank you for your message! I will get back to you soon.', 'success');
-                contactForm.reset();
-                
-                submitButton.textContent = originalText;
-                submitButton.disabled = false;
-            }, 1500);
-        });
+    render();
+    const t1 = setInterval(cycleCondition, 5000);
+    return () => clearInterval(t1);
+  }
+
+  // Bitcoin price simulation
+  function initBitcoin() {
+    const priceEl = document.getElementById('btc-price');
+    const changeEl = document.getElementById('btc-change');
+    const spark = document.getElementById('btc-spark'); // <canvas>
+
+    let price = 65000 + rand(-500, 500);
+    let history = Array.from({ length: 30 }, () => price + rand(-300, 300));
+
+    function render(next) {
+      const from = price;
+      price = clamp(next, 5000, 200000);
+      const delta = price - from;
+      const pct = (delta / from) * 100;
+      tweenNumber({ el: priceEl, from, to: price, duration: 500, formatter: v => `$${Math.round(v).toLocaleString()}` });
+      setText(changeEl, `${delta >= 0 ? '+' : ''}${pct.toFixed(2)}%`);
+      changeEl?.classList.toggle('up', delta >= 0);
+      changeEl?.classList.toggle('down', delta < 0);
+      history.push(price);
+      if (history.length > 60) history.shift();
+      updateSparkline(spark, history);
     }
 
-    // Email validation
-    function isValidEmail(email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
+    function tick() {
+      const vol = rand(50, 300); // volatility
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const next = price + dir * vol;
+      render(next);
     }
 
-    // Notification system
-    function showNotification(message, type = 'info') {
-        // Remove existing notifications
-        const existingNotification = document.querySelector('.notification');
-        if (existingNotification) {
-            existingNotification.remove();
-        }
-        
-        // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `notification notification--${type}`;
-        notification.innerHTML = `
-            <div class="notification__content">
-                <p>${message}</p>
-                <button class="notification__close">&times;</button>
-            </div>
-        `;
-        
-        // Add styles
-        notification.style.cssText = `
-            position: fixed;
-            top: 100px;
-            right: 20px;
-            z-index: 1001;
-            background: ${type === 'error' ? 'var(--color-error)' : 'var(--color-success)'};
-            color: white;
-            padding: var(--space-16);
-            border-radius: var(--radius-base);
-            box-shadow: var(--shadow-lg);
-            max-width: 300px;
-            animation: slideIn 0.3s ease-out;
-        `;
-        
-        // Add CSS animation
-        if (!document.querySelector('#notification-styles')) {
-            const style = document.createElement('style');
-            style.id = 'notification-styles';
-            style.textContent = `
-                @keyframes slideIn {
-                    from {
-                        opacity: 0;
-                        transform: translateX(100%);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateX(0);
-                    }
-                }
-                .notification__content {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: var(--space-12);
-                }
-                .notification__close {
-                    background: none;
-                    border: none;
-                    color: white;
-                    font-size: var(--font-size-xl);
-                    cursor: pointer;
-                    padding: 0;
-                    line-height: 1;
-                }
-            `;
-            document.head.appendChild(style);
-        }
-        
-        // Add to page
-        document.body.appendChild(notification);
-        
-        // Close button functionality
-        const closeButton = notification.querySelector('.notification__close');
-        closeButton.addEventListener('click', () => {
-            notification.remove();
-        });
-        
-        // Auto remove after 5 seconds
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-            }
-        }, 5000);
+    // initial paint
+    render(price);
+    const t = setInterval(tick, 4000);
+    return () => clearInterval(t);
+  }
+
+  // Market sentiment simulation (0-100)
+  function initSentiment() {
+    const bar = document.getElementById('sentiment-bar'); // width or aria
+    const label = document.getElementById('sentiment-label');
+
+    let value = randInt(30, 70);
+
+    function bucket(v) {
+      if (v < 20) return 'Extreme Fear';
+      if (v < 45) return 'Fear';
+      if (v < 55) return 'Neutral';
+      if (v < 80) return 'Greed';
+      return 'Extreme Greed';
     }
 
-    // Smooth scroll for anchor links
-    document.addEventListener('click', function(e) {
-        if (e.target.tagName === 'A' && e.target.getAttribute('href') && e.target.getAttribute('href').startsWith('#')) {
-            const targetId = e.target.getAttribute('href').substring(1);
-            const targetElement = document.getElementById(targetId);
-            
-            if (targetElement && targetElement.classList.contains('page')) {
-                e.preventDefault();
-                showPage(targetId);
-            }
+    function render(next) {
+      const from = value;
+      value = clamp(next, 0, 100);
+      tweenNumber({ el: label, from, to: value, duration: 600, formatter: v => `${Math.round(v)} · ${bucket(v)}` });
+      if (bar) {
+        bar.style.width = `${value}%`;
+        bar.setAttribute('aria-valuenow', String(Math.round(value)));
+      }
+    }
+
+    function tick() {
+      const drift = rand(-8, 8);
+      const next = value + drift;
+      render(next);
+    }
+
+    render(value);
+    const t = setInterval(tick, 3000);
+    return () => clearInterval(t);
+  }
+
+  // News headlines rotator (if present)
+  function initNewsTicker() {
+    const items = $$('#news-ticker .news-item');
+    if (!items.length) return () => {};
+    let idx = 0;
+    function show(i) {
+      items.forEach((el, j) => el.classList.toggle('active', j === i));
+    }
+    show(0);
+    const t = setInterval(() => {
+      idx = (idx + 1) % items.length;
+      show(idx);
+    }, 4000);
+    return () => clearInterval(t);
+  }
+
+  // KPI widgets: generic counters with random drift
+  function initKPIs() {
+    const widgets = $$('.kpi[data-min][data-max]');
+    const timers = [];
+
+    widgets.forEach(w => {
+      const valEl = $('.kpi-value', w);
+      const min = parseFloat(w.dataset.min);
+      const max = parseFloat(w.dataset.max);
+      const fmt = w.dataset.fmt || 'int'; // int, float, percent, currency
+
+      let value = rand(min, max);
+
+      function format(v) {
+        switch (fmt) {
+          case 'float': return v.toFixed(2);
+          case 'percent': return `${v.toFixed(1)}%`;
+          case 'currency': return `$${Math.round(v).toLocaleString()}`;
+          default: return `${Math.round(v)}`;
         }
+      }
+
+      function tick() {
+        const delta = rand(-(max - min) * 0.05, (max - min) * 0.05);
+        const next = clamp(value + delta, min, max);
+        tweenNumber({ el: valEl, from: value, to: next, duration: 600, formatter: v => format(v) });
+        value = next;
+      }
+
+      // initial render
+      setText(valEl, format(value));
+      timers.push(setInterval(tick, randInt(2500, 4500)));
     });
 
-    // Add hover effects to cards
-    function addCardHoverEffects() {
-        const cards = document.querySelectorAll('.achievement-card, .research-card, .course-card, .publication-item, .conference-item');
-        
-        cards.forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-4px)';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = 'translateY(0)';
-            });
-        });
+    return () => timers.forEach(clearInterval);
+  }
+
+  // Task list interactions (checkbox progress)
+  function initTasks() {
+    const list = document.getElementById('tasks');
+    if (!list) return () => {};
+    const progress = document.getElementById('tasks-progress');
+
+    function updateProgress() {
+      const boxes = $$('input[type="checkbox"]', list);
+      const done = boxes.filter(b => b.checked).length;
+      const pct = boxes.length ? Math.round((done / boxes.length) * 100) : 0;
+      if (progress) progress.style.width = `${pct}%`;
+      const label = document.getElementById('tasks-progress-label');
+      setText(label, `${pct}%`);
     }
 
-    // Initialize card hover effects
-    addCardHoverEffects();
-
-    // Keyboard navigation
-    document.addEventListener('keydown', function(e) {
-        if (e.altKey) {
-            const keyMap = {
-                '1': 'home',
-                '2': 'about', 
-                '3': 'research',
-                '4': 'publications',
-                '5': 'conferences',
-                '6': 'teaching',
-                '7': 'blog',
-                '8': 'contact'
-            };
-            
-            if (keyMap[e.key]) {
-                e.preventDefault();
-                showPage(keyMap[e.key]);
-            }
-        }
+    list.addEventListener('change', e => {
+      if (e.target.matches('input[type="checkbox"]')) updateProgress();
     });
 
-    // Close mobile menu when clicking outside
-    document.addEventListener('click', function(e) {
-        if (!navToggle.contains(e.target) && !navMenu.contains(e.target)) {
-            navMenu.classList.remove('active');
-            const spans = navToggle.querySelectorAll('span');
-            spans[0].style.transform = 'none';
-            spans[1].style.opacity = '1';
-            spans[2].style.transform = 'none';
-        }
+    updateProgress();
+    return () => {};
+  }
+
+  // Notifications demo
+  function notify(message, type = 'info') {
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.textContent = message;
+    Object.assign(el.style, {
+      position: 'fixed', right: '20px', top: '20px', zIndex: 1000,
+      background: type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#3b82f6',
+      color: '#fff', padding: '10px 14px', borderRadius: '10px', boxShadow: '0 8px 20px rgba(0,0,0,.15)'
     });
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+  }
 
-    // Initialize the page
-    initializePage();
-
-    // Add loading animation
-    function showLoadingAnimation() {
-        document.body.style.opacity = '0';
-        
-        setTimeout(() => {
-            document.body.style.transition = 'opacity 0.3s ease-in-out';
-            document.body.style.opacity = '1';
-        }, 100);
+  // Theme toggle (if present)
+  function initTheme() {
+    const btn = document.getElementById('theme-toggle');
+    if (!btn) return () => {};
+    function apply(mode) {
+      document.documentElement.dataset.theme = mode;
+      localStorage.setItem('theme', mode);
+      btn.setAttribute('aria-pressed', String(mode === 'dark'));
     }
+    const saved = localStorage.getItem('theme') || 'light';
+    apply(saved);
+    btn.addEventListener('click', () => apply(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+    return () => {};
+  }
 
-    // Show loading animation
-    showLoadingAnimation();
-
-    // Add scroll-to-top functionality for long pages
-    window.addEventListener('scroll', function() {
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        
-        if (scrollTop > 500) {
-            if (!document.querySelector('.scroll-to-top')) {
-                const scrollButton = document.createElement('button');
-                scrollButton.className = 'scroll-to-top';
-                scrollButton.innerHTML = '↑';
-                scrollButton.style.cssText = `
-                    position: fixed;
-                    bottom: 20px;
-                    right: 20px;
-                    background: var(--color-primary);
-                    color: white;
-                    border: none;
-                    border-radius: 50%;
-                    width: 50px;
-                    height: 50px;
-                    cursor: pointer;
-                    z-index: 1000;
-                    font-size: var(--font-size-xl);
-                    box-shadow: var(--shadow-lg);
-                    transition: all var(--duration-normal) var(--ease-standard);
-                `;
-                
-                scrollButton.addEventListener('click', () => {
-                    window.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-                });
-                
-                document.body.appendChild(scrollButton);
-            }
-        } else {
-            const scrollButton = document.querySelector('.scroll-to-top');
-            if (scrollButton) {
-                scrollButton.remove();
-            }
-        }
+  // Search filter demo (client-side filter for list items)
+  function initFilter() {
+    const input = document.getElementById('filter-input');
+    const list = document.getElementById('filter-list');
+    if (!input || !list) return () => {};
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      $$('#filter-list .filter-item').forEach(li => {
+        const show = li.textContent.toLowerCase().includes(q);
+        li.style.display = show ? '' : 'none';
+      });
     });
+    return () => {};
+  }
 
-    console.log('Academic website initialized successfully!');
+  // Initialize everything
+  const disposers = [];
+  try { disposers.push(initClock()); } catch {}
+  try { disposers.push(initWeather()); } catch {}
+  try { disposers.push(initBitcoin()); } catch {}
+  try { disposers.push(initSentiment()); } catch {}
+  try { disposers.push(initNewsTicker()); } catch {}
+  try { disposers.push(initKPIs()); } catch {}
+  try { disposers.push(initTasks()); } catch {}
+  try { disposers.push(initTheme()); } catch {}
+  try { disposers.push(initFilter()); } catch {}
+
+  // Accessibility: keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '?' && (e.metaKey || e.ctrlKey)) {
+      notify('Shortcuts: Ctrl/Cmd+? (this), T toggle theme, / focus filter');
+    }
+    if (e.key.toLowerCase() === 't') {
+      const btn = document.getElementById('theme-toggle');
+      btn?.click();
+    }
+    if (e.key === '/' && document.activeElement === document.body) {
+      const input = document.getElementById('filter-input');
+      input?.focus();
+      e.preventDefault();
+    }
+  });
+
+  // Expose to window for debugging (optional)
+  window.__dashboardDebug = {
+    rand, randInt, tweenNumber
+  };
+
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    disposers.forEach(d => typeof d === 'function' && d());
+  });
 });
